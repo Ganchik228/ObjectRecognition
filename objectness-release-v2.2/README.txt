@@ -8,7 +8,7 @@ As a sub-component, this software uses the segmentation code of [3], which is in
 
 
 Introduction
-------------
+------------    
 
 Welcome to this release of the objectness measure [1,2]. The objectness measure quantifies how likely it is for an image window to contain an object of any class.  This software computes the objectness measure (MS+CC+SS) defined in [1,2] and allows to sample any desired number of windows from an image according to their objectness probabilities. For applications, we recommend to sample about 1000 windows, which ensures covering most objects even in difficult images (e.g. with small objects and lots of clutter). However, in images of normal difficulty 100 windows are sufficient (e.g. images downloaded from image search engines).
 
