@@ -13,12 +13,11 @@ if __name__ == '__main__':
     model_finetune.train(data="coco8.yaml", epochs=100, imgsz=640)
    
    
-    
     metrics1 = model_new.val(data="coco8.yaml")
     metrics2 = model_pretrained.val(data="coco8.yaml")
     metrics3 = model_finetune.val(data="coco8.yaml")
 
-    print(f"Новая с нуля:                  mAP50 = {metrics1.box.map50:.3f}")
-    print(f"Предобученная без дообучения:  mAP50 = {metrics2.box.map50:.3f}")
-    print(f"Предобученная + дообучение:    mAP50 = {metrics3.box.map50:.3f}")
+    print(f"Новая с нуля: mAP50 = {metrics1.box.map50:.3f}")
+    print(f"Предобученная без дообучения: mAP50 = {metrics2.box.map50:.3f}")
+    print(f"Предобученная + дообучение: mAP50 = {metrics3.box.map50:.3f}")
 
