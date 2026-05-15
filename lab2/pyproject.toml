@@ -3,13 +3,11 @@ name = "lab2"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
-    "matplotlib>=3.10.9",
-    "opencv-contrib-python>=4.13.0.92",
-    "pillow>=12.2.0",
     "torch>=2.11.0",
     "torchvision>=0.26.0",
+    "ultralytics>=8.4.50",
 ]
 
 [[tool.uv.index]]

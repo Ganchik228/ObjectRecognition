@@ -1,93 +1,95 @@
-import cv2
+import matlab.engine
 import numpy as np
-import os
+import cv2
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from ultralytics import YOLO
 
-from tensorflow.keras.applications.mobilenet_v2 import (
-    MobileNetV2, preprocess_input, decode_predictions
-)
-from tensorflow.keras.preprocessing import image
+OBJECTNESS_DIR = r"C:\Users\User\Documents\Learn\ObjectRecognition\lab2\objectness-release-v2.2"
+IMAGE_PATH = r"C:\Users\User\Documents\Learn\ObjectRecognition\lab2\images\5.jpg"
+CAT_CLASS_IDS = [281, 282, 283, 284, 285]
 
-# --- настройки ---
-IMAGE_DIR = "images"
-MODEL_PATH = "ObjectnessTrainedModel"
-TARGET_CLASS = "cat"  # <-- поменяй под свою задачу
-MAX_BOXES = 50
 
-# --- загрузка CNN ---
-model = MobileNetV2(weights="imagenet")
 
-# --- BING ---
-bing = cv2.saliency.ObjectnessBING_create()
-bing.setTrainingPath(os.path.abspath(MODEL_PATH))
+def yolo_has_cat(yolo_model, crop):
+    results = yolo_model(crop, verbose=False, classes=CAT_CLASS_IDS)
+    return any(len(r.probs.top5) > 0 for r in results)
 
-total_TP = 0
-total_FP = 0
 
-# --- обработка всех изображений ---
-for img_name in os.listdir(IMAGE_DIR):
-    img_path = os.path.join(IMAGE_DIR, img_name)
+eng = matlab.engine.start_matlab()
+eng.addpath(OBJECTNESS_DIR, nargout=0)
+eng.addpath(OBJECTNESS_DIR + r"\MEX", nargout=0)
+eng.addpath(OBJECTNESS_DIR + r"\pff_segment", nargout=0)
+eng.cd(OBJECTNESS_DIR, nargout=0)
+eng.startup(nargout=0)
 
-    img = cv2.imread(img_path)
-    if img is None:
-        continue
+matlab_path = IMAGE_PATH.replace("\\", "/")
+boxes = np.array(eng.eval(f"runObjectness(imread('{matlab_path}'), 10)", nargout=1))
+eng.quit()
 
-    print(f"\n=== {img_name} ===")
+positive_boxes = boxes[boxes[:, 4] >= 0.5]
+negative_boxes = boxes[boxes[:, 4] <  0.5]
 
-    # 1. гипотезы
-    success, boxes = bing.computeSaliency(img)
 
-    if not success or boxes is None:
-        print("Ошибка BING")
-        continue
+yolo = YOLO("yolo26n-cls.pt")
+img = cv2.imread(IMAGE_PATH)
+img_h, img_w = img.shape[:2]
 
-    print("Всего гипотез:", len(boxes))
 
-    boxes = boxes[:MAX_BOXES]
-    print("Используем:", len(boxes))
-
-    TP = 0
-    FP = 0
-
-    # 2. классификация
-    for (x, y, w, h) in boxes:
-        crop = img[y:y+h, x:x+w]
-
-        if crop.size == 0:
+def classify_boxes(yolo_model, img, box_list):
+    results = []
+    for box in box_list:
+        x1 = max(0, int(box[0]));  y1 = max(0, int(box[1]))
+        x2 = min(img_w, int(box[2])); y2 = min(img_h, int(box[3]))
+        if x2 - x1 < 10 or y2 - y1 < 10:
+            results.append(False)
             continue
+        results.append(yolo_has_cat(yolo_model, img[y1:y2, x1:x2]))
+    return results
 
-        try:
-            crop_resized = cv2.resize(crop, (224, 224))
-        except:
-            continue
 
-        x_input = image.img_to_array(crop_resized)
-        x_input = np.expand_dims(x_input, axis=0)
-        x_input = preprocess_input(x_input)
+positive_results = classify_boxes(yolo, img, positive_boxes)
 
-        preds = model.predict(x_input, verbose=0)
-        label = decode_predictions(preds, top=1)[0][0][1]
+negative_results = classify_boxes(yolo, img, negative_boxes)
 
-        if TARGET_CLASS in label:
-            TP += 1
-        else:
-            FP += 1
 
-    print("TP:", TP)
-    print("FP:", FP)
+TP = sum(1 for r in positive_results if r)
+FN = sum(1 for r in positive_results if not r) 
 
-    total_TP += TP
-    total_FP += FP
+FP = sum(1 for r in negative_results if r)
+TN = sum(1 for r in negative_results if not r)
 
-# --- итог ---
-TN = 0
-FN = 0
+P = TP + FN
+N = FP + TN
+acc = (TP + TN) / (P + N) * 100 if (P + N) > 0 else 0
 
-total = total_TP + total_FP + TN + FN
-accuracy = (total_TP + TN) / total if total > 0 else 0
+print(f"""
+╔══════════════════════════════════════╗
+║          │ Predicted + │ Predicted - ║
+╠══════════════════════════════════════╣
+║ Actual + │  TP = {TP:>4}  │  FN = {FN:>4}  ║
+║ Actual - │  FP = {FP:>4}  │  TN = {TN:>4}  ║
+╠══════════════════════════════════════╣
+║ P={P:<4}  N={N:<4}  Accuracy = {acc:.1f}%     ║
+╚══════════════════════════════════════╝
+""")
 
-print("\n=== ИТОГ ===")
-print("TP:", total_TP)
-print("FP:", total_FP)
-print("TN:", TN)
-print("FN:", FN)
-print("Accuracy:", accuracy)
+img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+fig, ax = plt.subplots(1, figsize=(12, 8))
+ax.imshow(img_rgb)
+
+for i, box in enumerate(positive_boxes):
+    x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+    color = 'deepskyblue' if positive_results[i] else 'red'  # TP или FN
+    ax.add_patch(patches.Rectangle(
+        (x1, y1), x2-x1, y2-y1, lw=2, edgecolor=color, facecolor='none'
+    ))
+
+ax.set_title(f"TP={TP}  FP={FP}  TN={TN}  FN={FN}  |  Accuracy={acc:.1f}%")
+ax.legend(handles=[
+    patches.Patch(color='deepskyblue', label=f'TP = {TP} (предложен + кот найден)'),
+    patches.Patch(color='red',         label=f'FN = {FN} (предложен + кота нет)'),
+])
+plt.tight_layout()
+plt.savefig("result.png", dpi=100)
+plt.show()
